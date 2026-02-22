@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi Signature Drag PDF Signer</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #1f2937;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            background: #111827;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        #pdfContainer {
+            position: relative;
+            width: 800px;
+            height: 500px;
+            margin-top: 20px;
+        }
+
+        #pdfViewer {
+            width: 800px;
+            height: 500px;
+            background: white;
+        }
+
+        .draggable {
+            position: absolute;
+            padding: 5px 10px;
+            background: rgba(37,99,235,0.9);
+            border-radius: 5px;
+            cursor: grab;
+            user-select: none;
+        }
+
+        button {
+            margin-top: 10px;
+            padding: 8px 15px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <h2>Drag Multi-Sign PDF</h2>
+
+    <input type="file" id="pdfFile" accept="application/pdf">
+    <br>
+    <input type="text" id="signerName" placeholder="Signer Name">
+    <select id="sigType">
+        <option value="text">Text Only</option>
+        <option value="image">Image + Text</option>
+    </select>
+    <input type="file" id="sigImage">
+    <button onclick="addSignature()">Add Signature</button>
+
+    <div id="pdfContainer">
+        <iframe id="pdfViewer"></iframe>
+    </div>
+
+    <button onclick="sendMultiSign()">Sign PDF</button>
+
+</div>
+
+<script>
+
+let signatures = [];
+let imageFiles = [];
+
+document.getElementById("pdfFile").addEventListener("change", function() {
+    let file = this.files[0];
+    if (file) {
+        document.getElementById("pdfViewer").src = URL.createObjectURL(file);
+    }
+});
+
+function makeDraggable(element) {
+
+    let offsetX = 0, offsetY = 0;
+
+    element.onmousedown = function(e) {
+        offsetX = e.offsetX;
+        offsetY = e.offsetY;
+
+        document.onmousemove = function(e2) {
+            let rect = document.getElementById("pdfContainer").getBoundingClientRect();
+            element.style.left = (e2.clientX - rect.left - offsetX) + "px";
+            element.style.top = (e2.clientY - rect.top - offsetY) + "px";
+        };
+
+        document.onmouseup = function() {
+            document.onmousemove = null;
+        };
+    };
+}
+
+function addSignature() {
+
+    let signer = document.getElementById("signerName").value;
+    let type = document.getElementById("sigType").value;
+
+    if (!signer) {
+        alert("Enter signer name");
+        return;
+    }
+
+    let div = document.createElement("div");
+    div.className = "draggable";
+    div.innerText = signer;
+    div.style.left = "100px";
+    div.style.top = "100px";
+
+    document.getElementById("pdfContainer").appendChild(div);
+
+    makeDraggable(div);
+
+    let sigData = {
+        element: div,
+        signer: signer,
+        type: type,
+        imageIndex: null
+    };
+
+    if (type === "image") {
+        let file = document.getElementById("sigImage").files[0];
+        if (file) {
+            sigData.imageIndex = imageFiles.length;
+            imageFiles.push(file);
+        }
+    }
+
+    signatures.push(sigData);
+}
+
+function sendMultiSign() {
+
+    let pdfFile = document.getElementById("pdfFile").files[0];
+
+    if (!pdfFile) {
+        alert("Upload PDF first");
+        return;
+    }
+
+    let formData = new FormData();
+    formData.append("file", pdfFile);
+
+    let data = [];
+
+    signatures.forEach((sig, index) => {
+
+        let rect = sig.element.getBoundingClientRect();
+        let containerRect = document.getElementById("pdfContainer").getBoundingClientRect();
+
+        let x = rect.left - containerRect.left;
+        let y = rect.top - containerRect.top;
+
+        let obj = {
+            signer: sig.signer,
+            x: x,
+            y: y,
+            type: sig.type
+        };
+
+        if (sig.type === "image" && sig.imageIndex !== null) {
+            obj.imageIndex = sig.imageIndex;
+        }
+
+        data.push(obj);
+    });
+
+    formData.append("signaturesData", JSON.stringify(data));
+
+    imageFiles.forEach(file => {
+        formData.append("signatureImages", file);
+    });
+
+    fetch("/api/docs/sign", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.text())
+    .then(alert)
+    .catch(err => console.error(err));
+}
+
+</script>
+
+</body>
+</html>
